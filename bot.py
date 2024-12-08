@@ -334,7 +334,7 @@ class TelegramBot:
 
     async def setup_message_forwarding(self, user_session, folder, channel_id):
         """Настройка пересылки сообщений для папки"""
-        logger.info(f"Настройка пересылки для папки {folder.title}")
+        logger.info(f"Настройка пересылки дл�� папки {folder.title}")
         
         async def forward_handler(event):
             try:
@@ -370,7 +370,7 @@ class TelegramBot:
                         logger.info("Сообщение успешно переслано")
                     except Exception as e:
                         logger.error(f"Ошибка при пересылке: {e}")
-                        # Пробуем перепод��лючиться
+                        # Пробуем переподключиться
                         await user_session.init_client()
                 
             except Exception as e:
@@ -514,11 +514,35 @@ class TelegramBot:
             logger.error(f"Ошибка при очистке сессии: {e}")
 
     async def start_auth_process(self, event, user_session):
-        """Начало процесса авторизации для пользователя"""
+        """Начало ��роцесса авторизации для пользователя"""
         try:
-            # Очищаем старую сессию перед новой авторизацией
-            await self.cleanup_session(user_session.user_id)
+            # Проверяем, есть ли сохраненная сессия
+            data = self.load_user_data(user_session.user_id)
+            if data.get('session_string'):
+                # Пробуем использовать существующую сессию
+                user_session.session_string = data['session_string']
+                if await user_session.init_client():
+                    logger.info(f"Восстановлена существующая сессия для пользователя {user_session.user_id}")
+                    await self.show_folders(event, user_session)
+                    return
             
+            # Если нет сохраненной сессии или она недействительна, начинаем новую авторизацию
+            user_session.client = TelegramClient(
+                StringSession(),
+                API_ID,
+                API_HASH,
+                device_model='Desktop',
+                system_version='Windows 10',
+                app_version='1.0',
+                flood_sleep_threshold=60,
+                request_retries=10,
+                connection_retries=10,
+                retry_delay=2,
+                timeout=30,
+                auto_reconnect=True
+            )
+            
+            await user_session.client.connect()
             qr_login = await user_session.client.qr_login()
             
             # Создаем QR-код
@@ -536,13 +560,21 @@ class TelegramBot:
                 "Для авторизации:\n"
                 "1. Откройте Telegram на телефоне\n"
                 "2. Перейдите в Настройки -> Устройства -> Подключить устройство\n"
-                "3. Отсканирйте этот QR-код",
+                "3. Отсканируйте этот QR-код",
                 file=bio
             )
             
             # Ждем авторизацию
             await qr_login.wait()
             user_session.is_authorized = True
+            
+            # Сохраняем новую сессию
+            user_session.session_string = user_session.client.session.save()
+            self.save_user_data(user_session.user_id, {
+                'session_string': user_session.session_string,
+                'active_folders': user_session.active_folders,
+                'folder_channels': data.get('folder_channels', {})
+            })
             
             # Показываем список папок после авторизации
             await self.show_folders(event, user_session)
