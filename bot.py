@@ -52,25 +52,44 @@ class UserSession:
     async def init_client(self):
         """Инициализация клиента для пользователя"""
         try:
+            # Загружаем данные пользователя
             data = self.bot_instance.load_user_data(self.user_id)
             self.session_string = data.get('session_string')
             self.active_folders = data.get('active_folders', {})
             
             # Создаем новый клиент
-            self.client = TelegramClient(
-                StringSession(self.session_string) if self.session_string else StringSession(),
-                API_ID,
-                API_HASH,
-                device_model='Desktop',
-                system_version='Windows 10',
-                app_version='1.0',
-                flood_sleep_threshold=60,
-                request_retries=10,
-                connection_retries=10,
-                retry_delay=2,
-                timeout=30,
-                auto_reconnect=True
-            )
+            if self.session_string:
+                logger.info(f"Восстанавливаем сессию для пользователя {self.user_id}")
+                self.client = TelegramClient(
+                    StringSession(self.session_string),
+                    API_ID,
+                    API_HASH,
+                    device_model='Desktop',
+                    system_version='Windows 10',
+                    app_version='1.0',
+                    flood_sleep_threshold=60,
+                    request_retries=10,
+                    connection_retries=10,
+                    retry_delay=2,
+                    timeout=30,
+                    auto_reconnect=True
+                )
+            else:
+                logger.info(f"Создаем новую сессию для пользователя {self.user_id}")
+                self.client = TelegramClient(
+                    StringSession(),
+                    API_ID,
+                    API_HASH,
+                    device_model='Desktop',
+                    system_version='Windows 10',
+                    app_version='1.0',
+                    flood_sleep_threshold=60,
+                    request_retries=10,
+                    connection_retries=10,
+                    retry_delay=2,
+                    timeout=30,
+                    auto_reconnect=True
+                )
 
             await self.client.connect()
             
@@ -79,7 +98,12 @@ class UserSession:
                 # Сохраняем сессию только если её ещё нет
                 if not self.session_string:
                     self.session_string = self.client.session.save()
-                    await self.save_session()
+                    # Сохраняем данные пользователя с session_string
+                    self.bot_instance.save_user_data(self.user_id, {
+                        'session_string': self.session_string,
+                        'active_folders': self.active_folders,
+                        'folder_channels': data.get('folder_channels', {})
+                    })
                 # Восстанавливаем каналы
                 await self.restore_channels()
                 return True
@@ -156,7 +180,7 @@ class UserSession:
                     # Проверяем авторизацию после переподключения
                     if not await self.client.is_user_authorized():
                         self.is_authorized = False
-                        logger.warning("Клиент потерял авторизацию после переподключения")
+                        logger.warning("Клиент потерял ��вторизацию после переподключения")
                         return False
                     
                     logger.info("Успешное переподключение")
@@ -426,7 +450,7 @@ class TelegramBot:
                                 logger.error(f"Не удалось получить существующий канал: {e}")
                                 channel = None
 
-                        # Создаем новый канал только если не нашли существующий
+                        # Создаем новый канал только если не наш��и существующий
                         if not channel:
                             channel = await self.create_folder_channel(user_session, folder.title)
                             if not channel:
@@ -450,7 +474,7 @@ class TelegramBot:
 
                     except Exception as e:
                         logger.error(f"Ошибка при активации папки: {e}")
-                        await event.answer("Произошла ошибка при активации папки")
+                        await event.answer("Произошла ошибка пр�� активации папки")
                         return
 
                 # Сохраняем обновленные данные
@@ -470,12 +494,15 @@ class TelegramBot:
     async def cleanup_session(self, user_id):
         """Очистка сессии пользователя"""
         try:
-            session_file = os.path.join('sessions', f'user_{user_id}.session')
-            if os.path.exists(session_file):
-                os.remove(session_file)
-                logger.info(f"Удалена сессия пользователя {user_id}")
+            # Загружаем текущие данные
+            data = self.load_user_data(user_id)
+            # Удаляем строку сессии
+            data['session_string'] = None
+            # Сохраняем обновленные данные
+            self.save_user_data(user_id, data)
+            logger.info(f"Очищена сессия пользователя {user_id}")
         except Exception as e:
-            logger.error(f"Ошибка при удалении сессии: {e}")
+            logger.error(f"Ошибка при очистке сессии: {e}")
 
     async def start_auth_process(self, event, user_session):
         """Начало процесса авторизации для пользователя"""
