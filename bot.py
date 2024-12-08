@@ -40,7 +40,7 @@ class UserSession:
     def __init__(self, user_id, bot_instance):
         self.user_id = user_id
         self.client = None
-        self.active_folders = {}
+        self.active_folders = {}  # {folder_id: {"channel_id": channel_id, "title": folder_title}}
         self.folder_handlers = {}
         self.is_authorized = False
         self.session_string = None
@@ -79,6 +79,8 @@ class UserSession:
                 if not self.session_string:
                     self.session_string = self.client.session.save()
                     await self.save_session()
+                # Восстанавливаем каналы
+                await self.restore_channels()
                 return True
                 
             return False
@@ -88,14 +90,55 @@ class UserSession:
             return False
 
     async def save_session(self):
-        """Сохранение сессии"""
+        """Сохранение сессии и данных о каналах"""
         try:
             self.bot_instance.save_user_data(self.user_id, {
                 'session_string': self.session_string,
-                'active_folders': self.active_folders
+                'active_folders': self.active_folders,
+                'folder_channels': {
+                    folder_id: {
+                        'channel_id': data['channel_id'],
+                        'title': data['title']
+                    }
+                    for folder_id, data in self.active_folders.items()
+                }
             })
         except Exception as e:
-            logger.error(f"Ошибка при сохранении сессии: {e}", exc_info=True)
+            logger.error(f"Ошибка при сохранении данных: {e}", exc_info=True)
+
+    async def restore_channels(self):
+        """Восстановление связей с каналами"""
+        try:
+            data = self.bot_instance.load_user_data(self.user_id)
+            folder_channels = data.get('folder_channels', {})
+            
+            # Получаем текущие папки
+            dialog_filters = await self.client(GetDialogFiltersRequest())
+            current_folders = {
+                str(f.id): f 
+                for f in dialog_filters.filters 
+                if hasattr(f, 'id') and hasattr(f, 'title')
+            }
+
+            # Восстанавливаем активные папки
+            for folder_id, channel_data in folder_channels.items():
+                if folder_id in current_folders:
+                    folder = current_folders[folder_id]
+                    # Проверяем существование канала
+                    try:
+                        channel = await self.client.get_entity(channel_data['channel_id'])
+                        self.active_folders[folder_id] = {
+                            'channel_id': channel.id,
+                            'title': channel_data['title']
+                        }
+                        # Восстанавливаем пересылку
+                        await self.bot_instance.setup_message_forwarding(self, folder, channel.id)
+                        logger.info(f"Восстановлена папка {folder.title} с каналом {channel.id}")
+                    except Exception as e:
+                        logger.error(f"Не удалось восстановить канал для папки {folder.title}: {e}")
+
+        except Exception as e:
+            logger.error(f"Ошибка при восстановлении каналов: {e}", exc_info=True)
 
     async def ensure_connected(self):
         """Проверка и восстановление соединения"""
@@ -163,7 +206,7 @@ class TelegramBot:
         file_path = f'user_data/{user_id}.json'
         with open(file_path, 'w') as f:
             json.dump(data, f)
-        # Устанавливаем прав�� доступа для файла данных
+        # Устанавливаем права доступа для файла данных
         os.chmod(file_path, 0o666)
 
     async def get_user_session(self, user_id):
@@ -225,7 +268,7 @@ class TelegramBot:
             logger.info(f"Создаем канал для папки {folder_title}")
             result = await user_session.client(CreateChannelRequest(
                 title=f"📁 {folder_title}",
-                about=f"Агрегатор для папки {folder_title}",
+                about=f"Аг��егатор для папки {folder_title}",
                 megagroup=False,
                 for_import=False
             ))
@@ -263,7 +306,7 @@ class TelegramBot:
                         continue
 
                 if chat.id in included_peers:
-                    # Добавляем небольшую задержку
+                    # Добавляем неболшую задержку
                     await asyncio.sleep(0.5)
                     
                     try:
@@ -272,7 +315,7 @@ class TelegramBot:
                             event.message,
                             silent=True
                         )
-                        logger.info("С��общение успешно переслано")
+                        logger.info("Сообщение успешно переслано")
                     except Exception as e:
                         logger.error(f"Ошибка при пересылке: {e}")
                         # Пробуем переподключиться
@@ -307,7 +350,6 @@ class TelegramBot:
             user_session = await self.get_user_session(user_id)
             
             try:
-                # Проверяем авторизацию
                 if not await user_session.ensure_authorized():
                     await event.answer("Требуется повторная авторизация")
                     await self.start_auth_process(event, user_session)
@@ -324,35 +366,56 @@ class TelegramBot:
                 if not folder:
                     await event.answer("Не удалось получить информацию о папке")
                     return
-                
-                logger.info(f"Обработка нажатия на папку {folder_id} пользователем {user_id}")
-                logger.info(f"Текущие активные папки: {user_session.active_folders}")
-                
+
                 if folder_id_str in user_session.active_folders:
                     # Деактивируем папку
-                    logger.info(f"Деактивация папки {folder.title}")
                     if folder_id in user_session.folder_handlers:
                         user_session.client.remove_event_handler(user_session.folder_handlers[folder_id])
                         del user_session.folder_handlers[folder_id]
                     del user_session.active_folders[folder_id_str]
                     await event.answer("Папка деактивирована")
                 else:
-                    # Активируем папку
-                    logger.info(f"Активация папки {folder.title}")
-                    channel = await self.create_folder_channel(user_session, folder.title)
-                    if channel:
-                        user_session.active_folders[folder_id_str] = channel.id
-                        await self.setup_message_forwarding(user_session, folder, channel.id)
-                        await event.answer("Папка активирована")
+                    # Проверяем, ес��ь ли сохраненный канал
+                    data = self.load_user_data(user_id)
+                    folder_channels = data.get('folder_channels', {})
                     
-                    # Сохраняем данные пользователя
-                    self.save_user_data(user_id, {
-                        'active_folders': user_session.active_folders
-                    })
-                    logger.info(f"Обновленные активные папки: {user_session.active_folders}")
-                    
-                    # Обновляем список папок
-                    await self.show_folders(event, user_session)
+                    if folder_id_str in folder_channels:
+                        try:
+                            # Пробуем использовать существующий канал
+                            channel_data = folder_channels[folder_id_str]
+                            channel = await user_session.client.get_entity(channel_data['channel_id'])
+                            user_session.active_folders[folder_id_str] = {
+                                'channel_id': channel.id,
+                                'title': folder.title
+                            }
+                            await self.setup_message_forwarding(user_session, folder, channel.id)
+                            await event.answer("Папка активирована (восстановлен существующий канал)")
+                        except:
+                            # Если не удалось восстановить, создаем новый канал
+                            channel = await self.create_folder_channel(user_session, folder.title)
+                            if channel:
+                                user_session.active_folders[folder_id_str] = {
+                                    'channel_id': channel.id,
+                                    'title': folder.title
+                                }
+                                await self.setup_message_forwarding(user_session, folder, channel.id)
+                                await event.answer("Папка активирована (создан новый канал)")
+                    else:
+                        # Создаем новый канал
+                        channel = await self.create_folder_channel(user_session, folder.title)
+                        if channel:
+                            user_session.active_folders[folder_id_str] = {
+                                'channel_id': channel.id,
+                                'title': folder.title
+                            }
+                            await self.setup_message_forwarding(user_session, folder, channel.id)
+                            await event.answer("Папка активирована")
+
+                # Сохраняем обновленные данные
+                await user_session.save_session()
+                
+                # Обновляем список папок
+                await self.show_folders(event, user_session)
                 
             except Exception as e:
                 logger.error(f"Ошибка при обработке callback: {e}", exc_info=True)
