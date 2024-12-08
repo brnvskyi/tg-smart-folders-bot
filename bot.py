@@ -143,20 +143,31 @@ class UserSession:
     async def ensure_connected(self):
         """Проверка и восстановление соединения"""
         try:
-            if not self.client.is_connected() or not await self.client.is_user_authorized():
+            if not self.client or not self.client.is_connected():
                 if self.reconnect_attempts < self.max_reconnect_attempts:
                     self.reconnect_attempts += 1
                     logger.info(f"Попытка переподключения {self.reconnect_attempts}/{self.max_reconnect_attempts}")
-                    await self.client.connect()
-                    if not await self.client.is_user_authorized():
+                    
+                    # Пересоздаем клиент если текущий не работает
+                    if not self.client or not await self.client.connect():
                         await self.init_client()
+                    
+                    # Проверяем авторизацию после переподключения
+                    if not await self.client.is_user_authorized():
+                        self.is_authorized = False
+                        logger.warning("Клиент потерял авторизацию после переподключения")
+                        return False
+                    
+                    logger.info("Успешное переподключение")
+                    return True
                 else:
                     logger.error("Превышено максимальное количество попыток переподключения")
                     self.is_authorized = False
-            else:
-                self.reconnect_attempts = 0
+                    return False
+            return True
         except Exception as e:
             logger.error(f"Ошибка при проверке соединения: {e}", exc_info=True)
+            return False
 
     async def ensure_authorized(self):
         """Проверка авторизации"""
@@ -268,7 +279,7 @@ class TelegramBot:
             logger.info(f"Создаем канал для папки {folder_title}")
             result = await user_session.client(CreateChannelRequest(
                 title=f"📁 {folder_title}",
-                about=f"Аг��егатор для папки {folder_title}",
+                about=f"Агрегатор для папки {folder_title}",
                 megagroup=False,
                 for_import=False
             ))
@@ -285,10 +296,9 @@ class TelegramBot:
         
         async def forward_handler(event):
             try:
-                # Проверяем авторизацию
-                if not await user_session.client.is_user_authorized():
-                    logger.warning("Клиент не авторизован, пытаемся переподключиться")
-                    await user_session.init_client()
+                # Проверяем соединение перед обработкой сообщения
+                if not await user_session.ensure_connected():
+                    logger.warning("Не удалось восстановить соединение")
                     return
 
                 # Получаем информацию о сообщении
@@ -315,7 +325,7 @@ class TelegramBot:
                             event.message,
                             silent=True
                         )
-                        logger.info("Сообщение успешно переслано")
+                        logger.info("Сооб��ение успешно переслано")
                     except Exception as e:
                         logger.error(f"Ошибка при пересылке: {e}")
                         # Пробуем переподключиться
@@ -367,52 +377,70 @@ class TelegramBot:
                     await event.answer("Не удалось получить информацию о папке")
                     return
 
+                # Загружаем данные о каналах
+                data = self.load_user_data(user_id)
+                folder_channels = data.get('folder_channels', {})
+
                 if folder_id_str in user_session.active_folders:
-                    # Деактивируем папку
+                    # Деактивируем папку, но сохраняем информацию о канале
                     if folder_id in user_session.folder_handlers:
                         user_session.client.remove_event_handler(user_session.folder_handlers[folder_id])
                         del user_session.folder_handlers[folder_id]
+                    
+                    # Сохраняем информацию о канале перед деактивацией
+                    folder_channels[folder_id_str] = {
+                        'channel_id': user_session.active_folders[folder_id_str]['channel_id'],
+                        'title': user_session.active_folders[folder_id_str]['title']
+                    }
+                    
                     del user_session.active_folders[folder_id_str]
                     await event.answer("Папка деактивирована")
                 else:
-                    # Проверяем, ес��ь ли сохраненный канал
-                    data = self.load_user_data(user_id)
-                    folder_channels = data.get('folder_channels', {})
-                    
-                    if folder_id_str in folder_channels:
-                        try:
-                            # Пробуем использовать существующий канал
-                            channel_data = folder_channels[folder_id_str]
-                            channel = await user_session.client.get_entity(channel_data['channel_id'])
-                            user_session.active_folders[folder_id_str] = {
-                                'channel_id': channel.id,
-                                'title': folder.title
-                            }
-                            await self.setup_message_forwarding(user_session, folder, channel.id)
-                            await event.answer("Папка активирована (восстановлен существующий канал)")
-                        except:
-                            # Если не удалось восстановить, создаем новый канал
+                    try:
+                        channel = None
+                        # Сначала пытаемся найти существующий канал
+                        if folder_id_str in folder_channels:
+                            try:
+                                channel_data = folder_channels[folder_id_str]
+                                channel = await user_session.client.get_entity(channel_data['channel_id'])
+                                logger.info(f"Найден существующий канал {channel.id} для папки {folder.title}")
+                            except Exception as e:
+                                logger.error(f"Не удалось получить существующий канал: {e}")
+                                channel = None
+
+                        # Создаем новый канал только если не нашли существующий
+                        if not channel:
                             channel = await self.create_folder_channel(user_session, folder.title)
-                            if channel:
-                                user_session.active_folders[folder_id_str] = {
-                                    'channel_id': channel.id,
-                                    'title': folder.title
-                                }
-                                await self.setup_message_forwarding(user_session, folder, channel.id)
-                                await event.answer("Папка активирована (создан новый канал)")
-                    else:
-                        # Создаем новый канал
-                        channel = await self.create_folder_channel(user_session, folder.title)
-                        if channel:
-                            user_session.active_folders[folder_id_str] = {
-                                'channel_id': channel.id,
-                                'title': folder.title
-                            }
-                            await self.setup_message_forwarding(user_session, folder, channel.id)
-                            await event.answer("Папка активирована")
+                            if not channel:
+                                await event.answer("Не удалось создать канал для папки")
+                                return
+
+                        # Активируем папку
+                        user_session.active_folders[folder_id_str] = {
+                            'channel_id': channel.id,
+                            'title': folder.title
+                        }
+                        
+                        # Обновляем информацию о канале
+                        folder_channels[folder_id_str] = {
+                            'channel_id': channel.id,
+                            'title': folder.title
+                        }
+                        
+                        await self.setup_message_forwarding(user_session, folder, channel.id)
+                        await event.answer("Папка активирована")
+
+                    except Exception as e:
+                        logger.error(f"Ошибка при активации папки: {e}")
+                        await event.answer("Произошла ошибка при активации папки")
+                        return
 
                 # Сохраняем обновленные данные
-                await user_session.save_session()
+                self.save_user_data(user_id, {
+                    'session_string': user_session.session_string,
+                    'active_folders': user_session.active_folders,
+                    'folder_channels': folder_channels  # Сохраняем информацию о всех каналах
+                })
                 
                 # Обновляем список папок
                 await self.show_folders(event, user_session)
@@ -454,7 +482,7 @@ class TelegramBot:
                 "Для авторизации:\n"
                 "1. Откройте Telegram на телефоне\n"
                 "2. Перейдите в Настройки -> Устройства -> Подключить устройство\n"
-                "3. Отсканируйте этот QR-код",
+                "3. Отсканирйте этот QR-код",
                 file=bio
             )
             
@@ -475,9 +503,11 @@ class TelegramBot:
             try:
                 for user_id, session in self.users.items():
                     if session.is_authorized:
-                        if not await session.client.is_user_authorized():
-                            logger.warning(f"Пользователь {user_id} потерял авторизацию")
-                            await session.init_client()
+                        if not await session.ensure_connected():
+                            logger.warning(f"Пользователь {user_id} потерял соединение")
+                            # Попытка переинициализации клиента
+                            if not await session.init_client():
+                                logger.error(f"Не удалось переинициализировать клиент для пользователя {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка при проверке соединений: {e}", exc_info=True)
             await asyncio.sleep(15)  # Проверка каждые 15 секунд
