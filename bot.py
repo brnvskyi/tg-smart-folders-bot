@@ -55,33 +55,32 @@ class UserSession:
             self.session_string = data.get('session_string')
             self.active_folders = data.get('active_folders', {})
             
-            if self.session_string:
-                self.client = TelegramClient(
-                    StringSession(self.session_string),
-                    API_ID,
-                    API_HASH,
-                    auto_reconnect=True,
-                    retry_delay=1,
-                    connection_retries=None
-                )
-            else:
-                self.client = TelegramClient(
-                    StringSession(),
-                    API_ID,
-                    API_HASH,
-                    auto_reconnect=True,
-                    retry_delay=1,
-                    connection_retries=None
-                )
+            # Создаем новый клиент
+            self.client = TelegramClient(
+                StringSession(self.session_string) if self.session_string else StringSession(),
+                API_ID,
+                API_HASH,
+                device_model='Desktop',
+                system_version='Windows 10',
+                app_version='1.0',
+                flood_sleep_threshold=60,
+                request_retries=10,
+                connection_retries=10,
+                retry_delay=2,
+                timeout=30,
+                auto_reconnect=True
+            )
 
             await self.client.connect()
             
             if await self.client.is_user_authorized():
                 self.is_authorized = True
+                # Сохраняем сессию только если её ещё нет
                 if not self.session_string:
                     self.session_string = self.client.session.save()
                     await self.save_session()
                 return True
+                
             return False
 
         except Exception as e:
@@ -116,6 +115,32 @@ class UserSession:
         except Exception as e:
             logger.error(f"Ошибка при проверке соединения: {e}", exc_info=True)
 
+    async def ensure_authorized(self):
+        """Проверка авторизации"""
+        try:
+            if not self.client or not self.client.is_connected():
+                await self.client.connect()
+            
+            if not await self.client.is_user_authorized():
+                self.is_authorized = False
+                return False
+                
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка при проверке авторизации: {e}", exc_info=True)
+            return False
+
+    async def handle_action(self, action):
+        """Обработка действий с проверкой авторизации"""
+        try:
+            if not await self.ensure_authorized():
+                logger.warning("Клиент не авторизован, требуется повторная авторизация")
+                return None
+            return await action()
+        except Exception as e:
+            logger.error(f"Ошибка при выполнении действия: {e}", exc_info=True)
+            return None
+
 class TelegramBot:
     def __init__(self):
         self.bot = None
@@ -138,7 +163,7 @@ class TelegramBot:
         file_path = f'user_data/{user_id}.json'
         with open(file_path, 'w') as f:
             json.dump(data, f)
-        # Устанавливаем права доступа для файла данных
+        # Устанавливаем прав�� доступа для файла данных
         os.chmod(file_path, 0o666)
 
     async def get_user_session(self, user_id):
@@ -217,16 +242,15 @@ class TelegramBot:
         
         async def forward_handler(event):
             try:
-                # Проверяем подключение
-                if not user_session.client.is_connected():
-                    await user_session.client.connect()
-                    
+                # Проверяем авторизацию
+                if not await user_session.client.is_user_authorized():
+                    logger.warning("Клиент не авторизован, пытаемся переподключиться")
+                    await user_session.init_client()
+                    return
+
                 # Получаем информацию о сообщении
                 chat = await event.get_chat()
                 logger.info(f"Получено сообщение из чата: {chat.id}")
-                
-                # Добавим задержку между пересылками
-                await asyncio.sleep(1)
                 
                 # Получаем список каналов из папки
                 included_peers = []
@@ -236,23 +260,26 @@ class TelegramBot:
                         included_peers.append(entity.id)
                     except Exception as e:
                         logger.error(f"Ошибка при получении информации о канале: {e}")
-                
+                        continue
+
                 if chat.id in included_peers:
-                    logger.info(f"Пересылаем сообщение в канал {channel_id}")
-                    await user_session.client.forward_messages(
-                        channel_id,
-                        event.message,
-                        silent=True  # Отправка без уведомления
-                    )
-                    logger.info("Сообщение успешно переслано")
+                    # Добавляем небольшую задержку
+                    await asyncio.sleep(0.5)
+                    
+                    try:
+                        await user_session.client.forward_messages(
+                            channel_id,
+                            event.message,
+                            silent=True
+                        )
+                        logger.info("С��общение успешно переслано")
+                    except Exception as e:
+                        logger.error(f"Ошибка при пересылке: {e}")
+                        # Пробуем переподключиться
+                        await user_session.init_client()
                 
             except Exception as e:
                 logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
-                # Пробуем переподключиться при ошибке
-                try:
-                    await user_session.client.connect()
-                except:
-                    pass
         
         # Регистрируем обработчик
         handler = user_session.client.add_event_handler(
@@ -265,7 +292,7 @@ class TelegramBot:
         @self.bot.on(events.NewMessage(pattern='/start'))
         async def start_handler(event):
             user_id = event.sender_id
-            logger.info(f"Получена коман��а /start от пользователя {user_id}")
+            logger.info(f"Получена команда /start от пользователя {user_id}")
             
             user_session = await self.get_user_session(user_id)
             
@@ -280,32 +307,43 @@ class TelegramBot:
             user_session = await self.get_user_session(user_id)
             
             try:
+                # Проверяем авторизацию
+                if not await user_session.ensure_authorized():
+                    await event.answer("Требуется повторная авторизация")
+                    await self.start_auth_process(event, user_session)
+                    return
+
                 folder_id = int(event.data.decode().split('_')[1])
                 folder_id_str = str(folder_id)
+                
+                async def get_folder_info():
+                    dialog_filters = await user_session.client(GetDialogFiltersRequest())
+                    return next((f for f in dialog_filters.filters if hasattr(f, 'id') and f.id == folder_id), None)
+                
+                folder = await user_session.handle_action(get_folder_info)
+                if not folder:
+                    await event.answer("Не удалось получить информацию о папке")
+                    return
+                
                 logger.info(f"Обработка нажатия на папку {folder_id} пользователем {user_id}")
                 logger.info(f"Текущие активные папки: {user_session.active_folders}")
                 
-                # Получаем информацию о папке
-                dialog_filters = await user_session.client(GetDialogFiltersRequest())
-                folder = next((f for f in dialog_filters.filters if hasattr(f, 'id') and f.id == folder_id), None)
-                
-                if folder:
-                    if folder_id_str in user_session.active_folders:
-                        # Деактивируем папку
-                        logger.info(f"Деактивация папки {folder.title}")
-                        if folder_id in user_session.folder_handlers:
-                            user_session.client.remove_event_handler(user_session.folder_handlers[folder_id])
-                            del user_session.folder_handlers[folder_id]
-                        del user_session.active_folders[folder_id_str]
-                        await event.answer("Папка деактивирована")
-                    else:
-                        # Активируем папку
-                        logger.info(f"Активация папки {folder.title}")
-                        channel = await self.create_folder_channel(user_session, folder.title)
-                        if channel:
-                            user_session.active_folders[folder_id_str] = channel.id
-                            await self.setup_message_forwarding(user_session, folder, channel.id)
-                            await event.answer("Папка активирована")
+                if folder_id_str in user_session.active_folders:
+                    # Деактивируем папку
+                    logger.info(f"Деактивация папки {folder.title}")
+                    if folder_id in user_session.folder_handlers:
+                        user_session.client.remove_event_handler(user_session.folder_handlers[folder_id])
+                        del user_session.folder_handlers[folder_id]
+                    del user_session.active_folders[folder_id_str]
+                    await event.answer("Папка деактивирована")
+                else:
+                    # Активируем папку
+                    logger.info(f"Активация папки {folder.title}")
+                    channel = await self.create_folder_channel(user_session, folder.title)
+                    if channel:
+                        user_session.active_folders[folder_id_str] = channel.id
+                        await self.setup_message_forwarding(user_session, folder, channel.id)
+                        await event.answer("Папка активирована")
                     
                     # Сохраняем данные пользователя
                     self.save_user_data(user_id, {
@@ -374,12 +412,12 @@ class TelegramBot:
             try:
                 for user_id, session in self.users.items():
                     if session.is_authorized:
-                        await session.ensure_connected()
-                        if not session.is_authorized:
+                        if not await session.client.is_user_authorized():
                             logger.warning(f"Пользователь {user_id} потерял авторизацию")
+                            await session.init_client()
             except Exception as e:
                 logger.error(f"Ошибка при проверке соединений: {e}", exc_info=True)
-            await asyncio.sleep(30)  # Проверка каждые 30 секунд
+            await asyncio.sleep(15)  # Проверка каждые 15 секунд
 
     async def run(self):
         await self.setup()
