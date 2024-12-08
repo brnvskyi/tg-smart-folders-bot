@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+DATA_DIR = os.getenv('DATA_DIR', 'user_data')  # Путь к директории с данными из переменной окружения
 
 class UserSession:
     def __init__(self, user_id, bot_instance):
@@ -207,18 +208,35 @@ class TelegramBot:
     def load_user_data(self, user_id):
         """Загрузка данных пользователя"""
         try:
-            with open(f'user_data/{user_id}.json', 'r') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            return {'active_folders': {}}
+            # Создаем директорию если её нет
+            os.makedirs(DATA_DIR, exist_ok=True)
+            
+            file_path = os.path.join(DATA_DIR, f'{user_id}.json')
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    logger.info(f"Загружены данные пользователя {user_id}: {data}")
+                    return data
+            return {'active_folders': {}, 'folder_channels': {}}
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке данных пользователя {user_id}: {e}")
+            return {'active_folders': {}, 'folder_channels': {}}
 
     def save_user_data(self, user_id, data):
-        """Сохранние данных пользователя"""
-        file_path = f'user_data/{user_id}.json'
-        with open(file_path, 'w') as f:
-            json.dump(data, f)
-        # Устанавливаем права доступа для файла данных
-        os.chmod(file_path, 0o666)
+        """Сохранение данных пользователя"""
+        try:
+            # Создаем директорию если её нет
+            os.makedirs(DATA_DIR, exist_ok=True)
+            
+            file_path = os.path.join(DATA_DIR, f'{user_id}.json')
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                logger.info(f"Сохранены данные пользователя {user_id}: {data}")
+            
+            # Устанавливаем права доступа для файла
+            os.chmod(file_path, 0o666)
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении данных пользователя {user_id}: {e}")
 
     async def get_user_session(self, user_id):
         """Получение или создание сессии пользователя"""
@@ -325,7 +343,7 @@ class TelegramBot:
                             event.message,
                             silent=True
                         )
-                        logger.info("Сооб��ение успешно переслано")
+                        logger.info("Сообщение успешно переслано")
                     except Exception as e:
                         logger.error(f"Ошибка при пересылке: {e}")
                         # Пробуем переподключиться
