@@ -45,65 +45,76 @@ class UserSession:
         self.is_authorized = False
         self.session_string = None
         self.bot_instance = bot_instance
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 5
 
     async def init_client(self):
         """Инициализация клиента для пользователя"""
         try:
-            # Пытаемся загрузить строку сессии из данных пользователя
             data = self.bot_instance.load_user_data(self.user_id)
             self.session_string = data.get('session_string')
+            self.active_folders = data.get('active_folders', {})
             
             if self.session_string:
-                # Используем сохраненную сессию
                 self.client = TelegramClient(
-                    StringSession(self.session_string), 
-                    API_ID, 
+                    StringSession(self.session_string),
+                    API_ID,
                     API_HASH,
-                    connection=connection.ConnectionTcpMTProxyRandomizedIntermediate,
-                    connection_retries=None,
                     auto_reconnect=True,
-                    retry_delay=1
+                    retry_delay=1,
+                    connection_retries=None
                 )
             else:
-                # Создаем новую сессию
-                self.client = TelegramClient(StringSession(), API_ID, API_HASH)
-                
+                self.client = TelegramClient(
+                    StringSession(),
+                    API_ID,
+                    API_HASH,
+                    auto_reconnect=True,
+                    retry_delay=1,
+                    connection_retries=None
+                )
+
             await self.client.connect()
-            self.is_authorized = await self.client.is_user_authorized()
             
-            if self.is_authorized and not self.session_string:
-                # Сохраняем строку сессии
-                self.session_string = self.client.session.save()
-                self.bot_instance.save_user_data(self.user_id, {
-                    'active_folders': self.active_folders,
-                    'session_string': self.session_string
-                })
-                
-            return self.is_authorized
-            
+            if await self.client.is_user_authorized():
+                self.is_authorized = True
+                if not self.session_string:
+                    self.session_string = self.client.session.save()
+                    await self.save_session()
+                return True
+            return False
+
         except Exception as e:
             logger.error(f"Ошибка при инициализации клиента: {e}", exc_info=True)
             return False
 
+    async def save_session(self):
+        """Сохранение сессии"""
+        try:
+            self.bot_instance.save_user_data(self.user_id, {
+                'session_string': self.session_string,
+                'active_folders': self.active_folders
+            })
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении сессии: {e}", exc_info=True)
+
     async def ensure_connected(self):
         """Проверка и восстановление соединения"""
         try:
-            if not self.client.is_connected():
-                await self.client.connect()
-                if not await self.client.is_user_authorized():
-                    # Пробуем использовать сохраненную сессию
-                    if self.session_string:
-                        self.client = TelegramClient(
-                            StringSession(self.session_string), 
-                            API_ID, 
-                            API_HASH,
-                            connection=connection.ConnectionTcpMTProxyRandomizedIntermediate,
-                            connection_retries=None,
-                            auto_reconnect=True
-                        )
-                        await self.client.connect()
+            if not self.client.is_connected() or not await self.client.is_user_authorized():
+                if self.reconnect_attempts < self.max_reconnect_attempts:
+                    self.reconnect_attempts += 1
+                    logger.info(f"Попытка переподключения {self.reconnect_attempts}/{self.max_reconnect_attempts}")
+                    await self.client.connect()
+                    if not await self.client.is_user_authorized():
+                        await self.init_client()
+                else:
+                    logger.error("Превышено максимальное количество попыток переподключения")
+                    self.is_authorized = False
+            else:
+                self.reconnect_attempts = 0
         except Exception as e:
-            logger.error(f"Ошибка при переподключении: {e}")
+            logger.error(f"Ошибка при проверке соединения: {e}", exc_info=True)
 
 class TelegramBot:
     def __init__(self):
@@ -254,7 +265,7 @@ class TelegramBot:
         @self.bot.on(events.NewMessage(pattern='/start'))
         async def start_handler(event):
             user_id = event.sender_id
-            logger.info(f"Получена команда /start от пользователя {user_id}")
+            logger.info(f"Получена коман��а /start от пользователя {user_id}")
             
             user_session = await self.get_user_session(user_id)
             
@@ -320,7 +331,7 @@ class TelegramBot:
             logger.error(f"Ошибка при удалении сессии: {e}")
 
     async def start_auth_process(self, event, user_session):
-        """Начало проце��са авторизации для пользователя"""
+        """Начало процесса авторизации для пользователя"""
         try:
             # Очищаем старую сессию перед новой авторизацией
             await self.cleanup_session(user_session.user_id)
@@ -362,10 +373,13 @@ class TelegramBot:
         while True:
             try:
                 for user_id, session in self.users.items():
-                    await session.ensure_connected()
+                    if session.is_authorized:
+                        await session.ensure_connected()
+                        if not session.is_authorized:
+                            logger.warning(f"Пользователь {user_id} потерял авторизацию")
             except Exception as e:
-                logger.error(f"Ошибка при проверке соединений: {e}")
-            await asyncio.sleep(60)  # Проверка каждую минуту
+                logger.error(f"Ошибка при проверке соединений: {e}", exc_info=True)
+            await asyncio.sleep(30)  # Проверка каждые 30 секунд
 
     async def run(self):
         await self.setup()
