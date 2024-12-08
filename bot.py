@@ -1,4 +1,4 @@
-from telethon import TelegramClient, events, Button
+from telethon import TelegramClient, events, Button, connection
 from telethon.tl.functions.messages import GetDialogFiltersRequest
 from telethon.tl.functions.channels import CreateChannelRequest
 from telethon.tl import types
@@ -55,7 +55,15 @@ class UserSession:
             
             if self.session_string:
                 # Используем сохраненную сессию
-                self.client = TelegramClient(StringSession(self.session_string), API_ID, API_HASH)
+                self.client = TelegramClient(
+                    StringSession(self.session_string), 
+                    API_ID, 
+                    API_HASH,
+                    connection=connection.ConnectionTcpMTProxyRandomizedIntermediate,
+                    connection_retries=None,
+                    auto_reconnect=True,
+                    retry_delay=1
+                )
             else:
                 # Создаем новую сессию
                 self.client = TelegramClient(StringSession(), API_ID, API_HASH)
@@ -77,6 +85,26 @@ class UserSession:
             logger.error(f"Ошибка при инициализации клиента: {e}", exc_info=True)
             return False
 
+    async def ensure_connected(self):
+        """Проверка и восстановление соединения"""
+        try:
+            if not self.client.is_connected():
+                await self.client.connect()
+                if not await self.client.is_user_authorized():
+                    # Пробуем использовать сохраненную сессию
+                    if self.session_string:
+                        self.client = TelegramClient(
+                            StringSession(self.session_string), 
+                            API_ID, 
+                            API_HASH,
+                            connection=connection.ConnectionTcpMTProxyRandomizedIntermediate,
+                            connection_retries=None,
+                            auto_reconnect=True
+                        )
+                        await self.client.connect()
+        except Exception as e:
+            logger.error(f"Ошибка при переподключении: {e}")
+
 class TelegramBot:
     def __init__(self):
         self.bot = None
@@ -95,7 +123,7 @@ class TelegramBot:
             return {'active_folders': {}}
 
     def save_user_data(self, user_id, data):
-        """Сохранение данных пользователя"""
+        """Сохранние данных пользователя"""
         file_path = f'user_data/{user_id}.json'
         with open(file_path, 'w') as f:
             json.dump(data, f)
@@ -178,9 +206,16 @@ class TelegramBot:
         
         async def forward_handler(event):
             try:
+                # Проверяем подключение
+                if not user_session.client.is_connected():
+                    await user_session.client.connect()
+                    
                 # Получаем информацию о сообщении
                 chat = await event.get_chat()
                 logger.info(f"Получено сообщение из чата: {chat.id}")
+                
+                # Добавим задержку между пересылками
+                await asyncio.sleep(1)
                 
                 # Получаем список каналов из папки
                 included_peers = []
@@ -195,12 +230,18 @@ class TelegramBot:
                     logger.info(f"Пересылаем сообщение в канал {channel_id}")
                     await user_session.client.forward_messages(
                         channel_id,
-                        event.message
+                        event.message,
+                        silent=True  # Отправка без уведомления
                     )
                     logger.info("Сообщение успешно переслано")
                 
             except Exception as e:
                 logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
+                # Пробуем переподключиться при ошибке
+                try:
+                    await user_session.client.connect()
+                except:
+                    pass
         
         # Регистрируем обработчик
         handler = user_session.client.add_event_handler(
@@ -279,7 +320,7 @@ class TelegramBot:
             logger.error(f"Ошибка при удалении сессии: {e}")
 
     async def start_auth_process(self, event, user_session):
-        """Начало процесса авторизации для пользователя"""
+        """Начало проце��са авторизации для пользователя"""
         try:
             # Очищаем старую сессию перед новой авторизацией
             await self.cleanup_session(user_session.user_id)
@@ -316,8 +357,19 @@ class TelegramBot:
             logger.error(f"Ошибка при авторизации пользователя {event.sender_id}: {e}")
             await event.respond("Произошла ошибка при авторизации. Попробуйте еще раз.")
 
+    async def check_connections(self):
+        """Периодическая проверка соединений"""
+        while True:
+            try:
+                for user_id, session in self.users.items():
+                    await session.ensure_connected()
+            except Exception as e:
+                logger.error(f"Ошибка при проверке соединений: {e}")
+            await asyncio.sleep(60)  # Проверка каждую минуту
+
     async def run(self):
         await self.setup()
+        asyncio.create_task(self.check_connections())
         logger.info("Бот готов к работе")
         await self.bot.run_until_disconnected()
 
