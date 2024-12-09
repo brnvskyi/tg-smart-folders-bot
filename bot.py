@@ -155,7 +155,7 @@ class UserSession:
             for folder_id, channel_data in folder_channels.items():
                 if folder_id in current_folders:
                     folder = current_folders[folder_id]
-                    # Проверяем сущест��ование канала
+                    # Проверяем существование канала
                     try:
                         # Пробуем получить канал через PeerChannel
                         try:
@@ -262,16 +262,15 @@ class TelegramBot:
         self.users = {}
         self.auth_states = {}
         
-        # Создаем директорию только для пользовательских данных
-        os.makedirs('user_data', exist_ok=True)
+        # Создаем необходимые директории в DATA_DIR
+        os.makedirs(os.path.join(DATA_DIR, 'user_data'), exist_ok=True)
+        os.makedirs(os.path.join(DATA_DIR, 'logs'), exist_ok=True)
 
     def load_user_data(self, user_id):
         """Загрузка данных пользователя"""
         try:
-            os.makedirs(DATA_DIR, exist_ok=True)
-            
             # Загружаем основные данные пользователя
-            file_path = os.path.join(DATA_DIR, f'{user_id}.json')
+            file_path = os.path.join(DATA_DIR, 'user_data', f'{user_id}.json')
             if os.path.exists(file_path):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -279,8 +278,8 @@ class TelegramBot:
             else:
                 data = {'active_folders': {}}
 
-            # Загружаем данные о ка��алах из отдельного файла
-            channels_path = os.path.join(DATA_DIR, f'{user_id}_channels.json')
+            # Загружаем данные о каналах из отдельного файла
+            channels_path = os.path.join(DATA_DIR, 'user_data', f'{user_id}_channels.json')
             if os.path.exists(channels_path):
                 with open(channels_path, 'r', encoding='utf-8') as f:
                     channels_data = json.load(f)
@@ -297,15 +296,13 @@ class TelegramBot:
     def save_user_data(self, user_id, data):
         """Сохранение данных пользователя"""
         try:
-            os.makedirs(DATA_DIR, exist_ok=True)
-            
             # Сохраняем основные данные пользователя
             user_data = {
                 'session_string': data.get('session_string'),
                 'active_folders': data.get('active_folders', {})
             }
             
-            file_path = os.path.join(DATA_DIR, f'{user_id}.json')
+            file_path = os.path.join(DATA_DIR, 'user_data', f'{user_id}.json')
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(user_data, f, ensure_ascii=False, indent=2)
                 logger.info(f"Сохранены основные данные пользователя {user_id}")
@@ -315,7 +312,7 @@ class TelegramBot:
                 'folder_channels': data.get('folder_channels', {})
             }
             
-            channels_path = os.path.join(DATA_DIR, f'{user_id}_channels.json')
+            channels_path = os.path.join(DATA_DIR, 'user_data', f'{user_id}_channels.json')
             with open(channels_path, 'w', encoding='utf-8') as f:
                 json.dump(channels_data, f, ensure_ascii=False, indent=2)
                 logger.info(f"Сохранены данные о каналах пользователя {user_id}")
@@ -390,7 +387,7 @@ class TelegramBot:
                 for_import=False
             ))
             channel = result.chats[0]
-            logger.info(f"Кана�� создан успешно: {channel.id}")
+            logger.info(f"Канал создан успешно: {channel.id}")
             return channel
         except Exception as e:
             logger.error(f"Ошибка при создании канала: {e}", exc_info=True)
@@ -440,7 +437,7 @@ class TelegramBot:
             except Exception as e:
                 logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
         
-        # Регистрируем обработчик
+        # Регистрируем об��аботчик
         handler = user_session.client.add_event_handler(
             forward_handler,
             events.NewMessage(chats=None)
@@ -648,7 +645,7 @@ class TelegramBot:
             await self.show_folders(event, user_session)
             
         except Exception as e:
-            logger.error(f"О��ибка при авторизации пользователя {event.sender_id}: {e}")
+            logger.error(f"Ошибка при авторизации пользователя {event.sender_id}: {e}")
             await event.respond("Произошла ошибка при авторизации. Попробуйте еще раз.")
 
     async def check_connections(self):
