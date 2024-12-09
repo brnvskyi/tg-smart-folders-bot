@@ -5,6 +5,7 @@ builder = "DOCKERFILE"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 
-[mount]
-source = "/data"
-destination = "/data" 
+[[volumes]]
+path = "/data"
+name = "user-data"
+mountPath = "/data" 

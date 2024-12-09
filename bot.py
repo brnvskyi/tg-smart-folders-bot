@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-DATA_DIR = os.getenv('DATA_DIR', 'user_data')  # Путь к директории с данными из переменной окружения
+DATA_DIR = os.getenv('DATA_DIR', '/data/user_data')  # Изменяем путь по умолчанию
 
 class UserSession:
     def __init__(self, user_id, bot_instance):
@@ -154,7 +154,7 @@ class UserSession:
             for folder_id, channel_data in folder_channels.items():
                 if folder_id in current_folders:
                     folder = current_folders[folder_id]
-                    # Проверяем существование канала
+                    # Проверяем существование к��нала
                     try:
                         # Сначала пробуем получить через get_input_entity
                         try:
@@ -247,7 +247,7 @@ class UserSession:
                 return None
             return await action()
         except Exception as e:
-            logger.error(f"Ошибка при выполнении действия: {e}", exc_info=True)
+            logger.error(f"Ошибка при выполнении действ��я: {e}", exc_info=True)
             return None
 
 class TelegramBot:
@@ -262,14 +262,14 @@ class TelegramBot:
     def load_user_data(self, user_id):
         """Загрузка данных пользователя"""
         try:
-            # Создаем директорию если её нет
+            # Создаем все необходимые директории
             os.makedirs(DATA_DIR, exist_ok=True)
             
             file_path = os.path.join(DATA_DIR, f'{user_id}.json')
             if os.path.exists(file_path):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    logger.info(f"Загружены данные пользователя {user_id}: {data}")
+                    logger.info(f"Загружены данные пользователя {user_id}")
                     return data
             return {'active_folders': {}, 'folder_channels': {}}
         except Exception as e:
@@ -279,13 +279,13 @@ class TelegramBot:
     def save_user_data(self, user_id, data):
         """Сохранение данных пользователя"""
         try:
-            # Создаем директорию если её нет
+            # Создаем все необходимые директории
             os.makedirs(DATA_DIR, exist_ok=True)
             
             file_path = os.path.join(DATA_DIR, f'{user_id}.json')
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-                logger.info(f"Сохранены данные пользователя {user_id}: {data}")
+                logger.info(f"Сохранены данные пользователя {user_id}")
             
             # Устанавливаем права доступа для файла
             os.chmod(file_path, 0o666)
@@ -370,7 +370,7 @@ class TelegramBot:
             try:
                 # Проверяем соединение перед обработкой сообщения
                 if not await user_session.ensure_connected():
-                    logger.warning("Не уда��ось восстановить соединение")
+                    logger.warning("Не удаось восстановить соединение")
                     return
 
                 # Получаем информацию о сообщении
@@ -397,7 +397,7 @@ class TelegramBot:
                             event.message,
                             silent=True
                         )
-                        logger.info("Сообщение успешно пе��еслано")
+                        logger.info("Сообщение успешно пееслано")
                     except Exception as e:
                         logger.error(f"Ошибка при пересылке: {e}")
                         # Пробуем переподключиться
@@ -510,7 +510,7 @@ class TelegramBot:
                             await self.setup_message_forwarding(user_session, folder, channel.id)
                             await event.answer("Папка активирована")
                         else:
-                            await event.answer("Не удалось активировать папку: канал недоступен")
+                            await event.answer("Не удалось активир��вать папку: канал недоступен")
                             return
 
                     except Exception as e:
@@ -530,7 +530,7 @@ class TelegramBot:
                 
             except Exception as e:
                 logger.error(f"Ошибка при обработке callback: {e}", exc_info=True)
-                await event.answer("Произошл�� ошибка при обработке папки")
+                await event.answer("Произошла ошибка при обработке папки")
 
     async def cleanup_session(self, user_id):
         """Очистка сессии пользователя"""
@@ -554,7 +554,7 @@ class TelegramBot:
                 # Пробуем использовать существующую сессию
                 user_session.session_string = data['session_string']
                 if await user_session.init_client():
-                    logger.info(f"Восстано��лена существующая сессия для пользователя {user_session.user_id}")
+                    logger.info(f"Во��станолена существующая сессия для пользователя {user_session.user_id}")
                     await self.show_folders(event, user_session)
                     return
             
