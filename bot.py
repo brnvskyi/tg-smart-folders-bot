@@ -134,6 +134,11 @@ class UserSession:
     async def restore_channels(self):
         """Восстановление связей с каналами"""
         try:
+            # Проверяем соединение перед восстановлением
+            if not await self.ensure_connected():
+                logger.error("Не удалось установить соединение для восстановления каналов")
+                return
+
             data = self.bot_instance.load_user_data(self.user_id)
             folder_channels = data.get('folder_channels', {})
             
@@ -151,16 +156,41 @@ class UserSession:
                     folder = current_folders[folder_id]
                     # Проверяем существование канала
                     try:
-                        channel = await self.client.get_entity(channel_data['channel_id'])
-                        self.active_folders[folder_id] = {
-                            'channel_id': channel.id,
-                            'title': channel_data['title']
-                        }
-                        # Восстанавливаем пересылку
-                        await self.bot_instance.setup_message_forwarding(self, folder, channel.id)
-                        logger.info(f"Восстановлена папка {folder.title} с каналом {channel.id}")
+                        # Сначала пробуем получить через get_input_entity
+                        try:
+                            input_channel = await self.client.get_input_entity(channel_data['channel_id'])
+                            channel = await self.client.get_entity(input_channel)
+                            logger.info(f"Канал {channel.id} получен через input_entity")
+                        except Exception as e:
+                            logger.warning(f"Не удалось получить канал через input_entity: {e}")
+                            # Пробуем получить напрямую через get_entity
+                            channel = await self.client.get_entity(channel_data['channel_id'])
+                            logger.info(f"Канал {channel.id} получен напрямую")
+
+                        if channel:
+                            self.active_folders[folder_id] = {
+                                'channel_id': channel.id,
+                                'title': channel_data['title']
+                            }
+                            # Восстанавливаем пересылку
+                            await self.bot_instance.setup_message_forwarding(self, folder, channel.id)
+                            logger.info(f"Восстановлена папка {folder.title} с каналом {channel.id}")
+                        
                     except Exception as e:
                         logger.error(f"Не удалось восстановить канал для папки {folder.title}: {e}")
+                        # Сохраняем информацию о канале даже если не удалось его восстановить
+                        if folder_id not in self.active_folders:
+                            self.active_folders[folder_id] = {
+                                'channel_id': channel_data['channel_id'],
+                                'title': channel_data['title']
+                            }
+
+            # Сохраняем обновленные данные
+            self.bot_instance.save_user_data(self.user_id, {
+                'session_string': self.session_string,
+                'active_folders': self.active_folders,
+                'folder_channels': folder_channels
+            })
 
         except Exception as e:
             logger.error(f"Ошибка при восстановлении каналов: {e}", exc_info=True)
@@ -334,13 +364,13 @@ class TelegramBot:
 
     async def setup_message_forwarding(self, user_session, folder, channel_id):
         """Настройка пересылки сообщений для папки"""
-        logger.info(f"Настройка пересылки дл�� папки {folder.title}")
+        logger.info(f"Настройка пересылки для папки {folder.title}")
         
         async def forward_handler(event):
             try:
                 # Проверяем соединение перед обработкой сообщения
                 if not await user_session.ensure_connected():
-                    logger.warning("Не удалось восстановить соединение")
+                    logger.warning("Не уда��ось восстановить соединение")
                     return
 
                 # Получаем информацию о сообщении
@@ -367,7 +397,7 @@ class TelegramBot:
                             event.message,
                             silent=True
                         )
-                        logger.info("Сообщение успешно переслано")
+                        logger.info("Сообщение успешно пе��еслано")
                     except Exception as e:
                         logger.error(f"Ошибка при пересылке: {e}")
                         # Пробуем переподключиться
@@ -449,12 +479,14 @@ class TelegramBot:
                                 logger.info(f"Используем существующий канал {channel.id} для папки {folder.title}")
                             except Exception as e:
                                 logger.error(f"Не удалось получить существующий канал: {e}")
-                                # Даже если не удалось получить канал, сохраняем его данные
-                                channel = types.Channel(
-                                    id=channel_data['channel_id'],
-                                    title=channel_data['title']
-                                )
-                                logger.info(f"Создан временный объект канала {channel.id}")
+                                # Пробуем получить канал через get_input_entity
+                                try:
+                                    input_channel = await user_session.client.get_input_entity(channel_data['channel_id'])
+                                    channel = await user_session.client.get_entity(input_channel)
+                                    logger.info(f"Канал {channel.id} получен через input_entity")
+                                except Exception as e2:
+                                    logger.error(f"Не удалось получить канал через input_entity: {e2}")
+                                    channel = None
 
                         # Создаем новый канал только если нет информации о существующем
                         if not channel and folder_id_str not in folder_channels:
@@ -478,7 +510,7 @@ class TelegramBot:
                             await self.setup_message_forwarding(user_session, folder, channel.id)
                             await event.answer("Папка активирована")
                         else:
-                            await event.answer("Не удалось активировать папку")
+                            await event.answer("Не удалось активировать папку: канал недоступен")
                             return
 
                     except Exception as e:
@@ -498,7 +530,7 @@ class TelegramBot:
                 
             except Exception as e:
                 logger.error(f"Ошибка при обработке callback: {e}", exc_info=True)
-                await event.answer("Произошла ошибка при обработке папки")
+                await event.answer("Произошл�� ошибка при обработке папки")
 
     async def cleanup_session(self, user_id):
         """Очистка сессии пользователя"""
@@ -514,7 +546,7 @@ class TelegramBot:
             logger.error(f"Ошибка при очистке сессии: {e}")
 
     async def start_auth_process(self, event, user_session):
-        """Начало ��роцесса авторизации для пользователя"""
+        """Начало роцесса авторизации для пользователя"""
         try:
             # Проверяем, есть ли сохраненная сессия
             data = self.load_user_data(user_session.user_id)
@@ -522,7 +554,7 @@ class TelegramBot:
                 # Пробуем использовать существующую сессию
                 user_session.session_string = data['session_string']
                 if await user_session.init_client():
-                    logger.info(f"Восстановлена существующая сессия для пользователя {user_session.user_id}")
+                    logger.info(f"Восстано��лена существующая сессия для пользователя {user_session.user_id}")
                     await self.show_folders(event, user_session)
                     return
             
