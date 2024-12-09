@@ -2,8 +2,9 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Создаем директорию для данных и устанавливаем права
-RUN mkdir -p /data && \
+# Создаем директории для данных и логов с нужными правами
+RUN mkdir -p /data/logs && \
+    mkdir -p /data/user_data && \
     chmod -R 777 /data && \
     chown -R nobody:nogroup /data
 

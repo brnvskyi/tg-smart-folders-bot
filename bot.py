@@ -15,14 +15,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Конфигурация
+API_ID = os.getenv('API_ID')
+API_HASH = os.getenv('API_HASH')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+DATA_DIR = os.getenv('DATA_DIR', '/data')
+LOGS_DIR = os.path.join(DATA_DIR, 'logs')
+
 # Настройка логирования
-os.makedirs('logs', exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         RotatingFileHandler(
-            'logs/bot.log',
+            os.path.join(LOGS_DIR, 'bot.log'),
             maxBytes=10*1024*1024,  # 10MB
             backupCount=5
         ),
@@ -30,12 +37,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
-# Конфигурация
-API_ID = os.getenv('API_ID')
-API_HASH = os.getenv('API_HASH')
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-DATA_DIR = os.getenv('DATA_DIR', '/data/user_data')  # Изменяем путь по умолчанию
 
 class UserSession:
     def __init__(self, user_id, bot_instance):
@@ -98,7 +99,7 @@ class UserSession:
                 # Сохраняем сессию только если её ещё нет
                 if not self.session_string:
                     self.session_string = self.client.session.save()
-                    # Сохраняем да��ные пользователя с session_string
+                    # Сохраняем данные пользователя с session_string
                     self.bot_instance.save_user_data(self.user_id, {
                         'session_string': self.session_string,
                         'active_folders': self.active_folders,
@@ -154,7 +155,7 @@ class UserSession:
             for folder_id, channel_data in folder_channels.items():
                 if folder_id in current_folders:
                     folder = current_folders[folder_id]
-                    # Проверяем существование канала
+                    # Проверяем сущест��ование канала
                     try:
                         # Пробуем получить канал через PeerChannel
                         try:
@@ -278,7 +279,7 @@ class TelegramBot:
             else:
                 data = {'active_folders': {}}
 
-            # Загружаем данные о каналах из отдельного файла
+            # Загружаем данные о ка��алах из отдельного файла
             channels_path = os.path.join(DATA_DIR, f'{user_id}_channels.json')
             if os.path.exists(channels_path):
                 with open(channels_path, 'r', encoding='utf-8') as f:
@@ -389,7 +390,7 @@ class TelegramBot:
                 for_import=False
             ))
             channel = result.chats[0]
-            logger.info(f"Канал создан успешно: {channel.id}")
+            logger.info(f"Кана�� создан успешно: {channel.id}")
             return channel
         except Exception as e:
             logger.error(f"Ошибка при создании канала: {e}", exc_info=True)
@@ -482,7 +483,7 @@ class TelegramBot:
                     await event.answer("Не удалось получить информацию о папке")
                     return
 
-                # Загружаем все сохраненные данные пользовате��я
+                # Загружаем все сохраненные данные пользователя
                 data = self.load_user_data(user_id)
                 folder_channels = data.get('folder_channels', {})
 
@@ -647,7 +648,7 @@ class TelegramBot:
             await self.show_folders(event, user_session)
             
         except Exception as e:
-            logger.error(f"Ошибка при авторизации пользователя {event.sender_id}: {e}")
+            logger.error(f"О��ибка при авторизации пользователя {event.sender_id}: {e}")
             await event.respond("Произошла ошибка при авторизации. Попробуйте еще раз.")
 
     async def check_connections(self):
