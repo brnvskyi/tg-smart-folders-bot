@@ -3,17 +3,19 @@ FROM python:3.9-slim
 WORKDIR /app
 
 # Создаем директорию для данных и устанавливаем права
-RUN mkdir -p /data && chmod 777 /data
+RUN mkdir -p /data && \
+    chmod -R 777 /data && \
+    chown -R nobody:nogroup /data
+
+# Переключаемся на непривилегированного пользователя
+USER nobody
 
 # Устанавливаем переменную окружения для пути к данным
 ENV DATA_DIR=/data
 
-COPY requirements.txt .
+COPY --chown=nobody:nogroup requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
-# Создаем директорию для пользовательских данных и устанавливаем права
-RUN mkdir -p /data/user_data && chmod 777 /data/user_data
+COPY --chown=nobody:nogroup . .
 
 CMD ["python", "bot.py"] 

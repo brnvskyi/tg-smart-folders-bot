@@ -156,16 +156,21 @@ class UserSession:
                     folder = current_folders[folder_id]
                     # Проверяем существование канала
                     try:
-                        # Сначала пробуем получить через get_input_entity
+                        # Пробуем получить канал через PeerChannel
                         try:
-                            input_channel = await self.client.get_input_entity(channel_data['channel_id'])
-                            channel = await self.client.get_entity(input_channel)
-                            logger.info(f"Канал {channel.id} получен через input_entity")
+                            peer = types.PeerChannel(channel_data['channel_id'])
+                            channel = await self.client.get_entity(peer)
+                            logger.info(f"Канал {channel.id} получен через PeerChannel")
                         except Exception as e:
-                            logger.warning(f"Не удалось получить канал через input_entity: {e}")
-                            # Пробуем получить напрямую через get_entity
-                            channel = await self.client.get_entity(channel_data['channel_id'])
-                            logger.info(f"Канал {channel.id} получен напрямую")
+                            logger.warning(f"Не удалось получить канал через PeerChannel: {e}")
+                            # Пробуем получить через диалоги
+                            async for dialog in self.client.iter_dialogs():
+                                if dialog.is_channel and dialog.entity.id == channel_data['channel_id']:
+                                    channel = dialog.entity
+                                    logger.info(f"Канал {channel.id} найден в диалогах")
+                                    break
+                            else:
+                                raise Exception("Канал не найден в диалогах")
 
                         if channel:
                             self.active_folders[folder_id] = {
@@ -477,7 +482,7 @@ class TelegramBot:
                     await event.answer("Не удалось получить информацию о папке")
                     return
 
-                # Загружаем все сохраненные данные пользователя
+                # Загружаем все сохраненные данные пользовате��я
                 data = self.load_user_data(user_id)
                 folder_channels = data.get('folder_channels', {})
 
