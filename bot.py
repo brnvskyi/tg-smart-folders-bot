@@ -48,11 +48,19 @@ class UserSession:
         self.session_string = None
         self.bot_instance = bot_instance
         self.reconnect_attempts = 0
-        self.max_reconnect_attempts = 5
+        self.max_reconnect_attempts = 10  # Увеличиваем количество попыток
+        self.retry_delay = 5  # Начальная задержка в секундах
 
     async def init_client(self):
         """Инициализация клиента для пользователя"""
         try:
+            # Если клиент существует, пробуем закрыть его
+            if self.client:
+                try:
+                    await self.client.disconnect()
+                except:
+                    pass
+                
             # Загружаем данные пользователя
             data = self.bot_instance.load_user_data(self.user_id)
             self.session_string = data.get('session_string')
@@ -71,8 +79,8 @@ class UserSession:
                     flood_sleep_threshold=60,
                     request_retries=10,
                     connection_retries=10,
-                    retry_delay=2,
-                    timeout=30,
+                    retry_delay=5,  # Увеличиваем задержку между попытками
+                    timeout=60,  # Увеличиваем таймаут
                     auto_reconnect=True
                 )
             else:
@@ -178,7 +186,7 @@ class UserSession:
                                 'channel_id': channel.id,
                                 'title': channel_data['title']
                             }
-                            # Восстанавливаем пересылку
+                            # Восстанавливаем ��ересылку
                             await self.bot_instance.setup_message_forwarding(self, folder, channel.id)
                             logger.info(f"Восстановлена папка {folder.title} с каналом {channel.id}")
                         
@@ -207,7 +215,11 @@ class UserSession:
             if not self.client or not self.client.is_connected():
                 if self.reconnect_attempts < self.max_reconnect_attempts:
                     self.reconnect_attempts += 1
-                    logger.info(f"Попытка переподключения {self.reconnect_attempts}/{self.max_reconnect_attempts}")
+                    # Экспоненциальное увеличение задержки
+                    delay = self.retry_delay * (2 ** (self.reconnect_attempts - 1))
+                    logger.info(f"Попытка переподключения {self.reconnect_attempts}/{self.max_reconnect_attempts} через {delay} секунд")
+                    
+                    await asyncio.sleep(delay)
                     
                     # Пересоздаем клиент если текущий не работает
                     if not self.client or not await self.client.connect():
@@ -220,10 +232,13 @@ class UserSession:
                         return False
                     
                     logger.info("Успешное переподключение")
+                    self.reconnect_attempts = 0  # Сбрасываем счетчик при успехе
                     return True
                 else:
-                    logger.error("Превышено максимальное количество попыток переподключения")
+                    logger.error(f"Превышено максимальное количество попыток переподключения для пользователя {self.user_id}")
                     self.is_authorized = False
+                    # Сбрасываем счетчик для следующей серии попыток
+                    self.reconnect_attempts = 0
                     return False
             return True
         except Exception as e:
@@ -437,7 +452,7 @@ class TelegramBot:
             except Exception as e:
                 logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
         
-        # Регистрируем об��аботчик
+        # Регистрируем обаботчик
         handler = user_session.client.add_event_handler(
             forward_handler,
             events.NewMessage(chats=None)
@@ -525,7 +540,7 @@ class TelegramBot:
                             if not channel:
                                 await event.answer("Не удалось создать канал для папки")
                                 return
-                            # Сохраняем информацию о новом канале
+                            # Сохраняем информацию о новом ка��але
                             folder_channels[folder_id_str] = {
                                 'channel_id': channel.id,
                                 'title': folder.title
@@ -574,7 +589,7 @@ class TelegramBot:
                 'active_folders': {},
                 'folder_channels': data.get('folder_channels', {})  # Сохраняем информацию о каналах
             })
-            logger.info(f"Очищена сессия пользователя {user_id}, информация о каналах сохранена")
+            logger.info(f"Очищена сессия пользователя {user_id}, информация о ка��алах сохранена")
         except Exception as e:
             logger.error(f"Ошибка при очистке сессии: {e}")
 
