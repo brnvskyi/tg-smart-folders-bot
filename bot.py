@@ -98,7 +98,7 @@ class UserSession:
                 # Сохраняем сессию только если её ещё нет
                 if not self.session_string:
                     self.session_string = self.client.session.save()
-                    # Сохраняем данные пользователя с session_string
+                    # Сохраняем да��ные пользователя с session_string
                     self.bot_instance.save_user_data(self.user_id, {
                         'session_string': self.session_string,
                         'active_folders': self.active_folders,
@@ -154,7 +154,7 @@ class UserSession:
             for folder_id, channel_data in folder_channels.items():
                 if folder_id in current_folders:
                     folder = current_folders[folder_id]
-                    # Проверяем существование к��нала
+                    # Проверяем существование канала
                     try:
                         # Сначала пробуем получить через get_input_entity
                         try:
@@ -247,7 +247,7 @@ class UserSession:
                 return None
             return await action()
         except Exception as e:
-            logger.error(f"Ошибка при выполнении действ��я: {e}", exc_info=True)
+            logger.error(f"Ошибка при выполнении действя: {e}", exc_info=True)
             return None
 
 class TelegramBot:
@@ -262,16 +262,28 @@ class TelegramBot:
     def load_user_data(self, user_id):
         """Загрузка данных пользователя"""
         try:
-            # Создаем все необходимые директории
             os.makedirs(DATA_DIR, exist_ok=True)
             
+            # Загружаем основные данные пользователя
             file_path = os.path.join(DATA_DIR, f'{user_id}.json')
             if os.path.exists(file_path):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     logger.info(f"Загружены данные пользователя {user_id}")
-                    return data
-            return {'active_folders': {}, 'folder_channels': {}}
+            else:
+                data = {'active_folders': {}}
+
+            # Загружаем данные о каналах из отдельного файла
+            channels_path = os.path.join(DATA_DIR, f'{user_id}_channels.json')
+            if os.path.exists(channels_path):
+                with open(channels_path, 'r', encoding='utf-8') as f:
+                    channels_data = json.load(f)
+                    data['folder_channels'] = channels_data.get('folder_channels', {})
+                    logger.info(f"Загружены данные о каналах пользователя {user_id}")
+            else:
+                data['folder_channels'] = {}
+
+            return data
         except Exception as e:
             logger.error(f"Ошибка при загрузке данных пользователя {user_id}: {e}")
             return {'active_folders': {}, 'folder_channels': {}}
@@ -279,16 +291,32 @@ class TelegramBot:
     def save_user_data(self, user_id, data):
         """Сохранение данных пользователя"""
         try:
-            # Создаем все необходимые директории
             os.makedirs(DATA_DIR, exist_ok=True)
+            
+            # Сохраняем основные данные пользователя
+            user_data = {
+                'session_string': data.get('session_string'),
+                'active_folders': data.get('active_folders', {})
+            }
             
             file_path = os.path.join(DATA_DIR, f'{user_id}.json')
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-                logger.info(f"Сохранены данные пользователя {user_id}")
+                json.dump(user_data, f, ensure_ascii=False, indent=2)
+                logger.info(f"Сохранены основные данные пользователя {user_id}")
             
-            # Устанавливаем права доступа для файла
+            # Сохраняем данные о каналах отдельно
+            channels_data = {
+                'folder_channels': data.get('folder_channels', {})
+            }
+            
+            channels_path = os.path.join(DATA_DIR, f'{user_id}_channels.json')
+            with open(channels_path, 'w', encoding='utf-8') as f:
+                json.dump(channels_data, f, ensure_ascii=False, indent=2)
+                logger.info(f"Сохранены данные о каналах пользователя {user_id}")
+            
+            # Устанавливаем права доступа для файлов
             os.chmod(file_path, 0o666)
+            os.chmod(channels_path, 0o666)
         except Exception as e:
             logger.error(f"Ошибка при сохранении данных пользователя {user_id}: {e}")
 
@@ -510,7 +538,7 @@ class TelegramBot:
                             await self.setup_message_forwarding(user_session, folder, channel.id)
                             await event.answer("Папка активирована")
                         else:
-                            await event.answer("Не удалось активир��вать папку: канал недоступен")
+                            await event.answer("Не удалось активировать папку: канал недоступен")
                             return
 
                     except Exception as e:
@@ -537,11 +565,13 @@ class TelegramBot:
         try:
             # Загружаем текущие данные
             data = self.load_user_data(user_id)
-            # Удаляем строку сессии
-            data['session_string'] = None
-            # Сохраняем обновленные данные
-            self.save_user_data(user_id, data)
-            logger.info(f"Очищена сессия пользователя {user_id}")
+            # Очищаем только данные сессии, сохраняя информацию о каналах
+            self.save_user_data(user_id, {
+                'session_string': None,
+                'active_folders': {},
+                'folder_channels': data.get('folder_channels', {})  # Сохраняем информацию о каналах
+            })
+            logger.info(f"Очищена сессия пользователя {user_id}, информация о каналах сохранена")
         except Exception as e:
             logger.error(f"Ошибка при очистке сессии: {e}")
 
@@ -554,7 +584,7 @@ class TelegramBot:
                 # Пробуем использовать существующую сессию
                 user_session.session_string = data['session_string']
                 if await user_session.init_client():
-                    logger.info(f"Во��станолена существующая сессия для пользователя {user_session.user_id}")
+                    logger.info(f"Востанолена существующая сессия для пользователя {user_session.user_id}")
                     await self.show_folders(event, user_session)
                     return
             
