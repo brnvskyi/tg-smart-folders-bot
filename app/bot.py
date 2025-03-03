@@ -29,9 +29,9 @@ class TelegramBot:
             
             # Initialize bot with proxy for PythonAnywhere
             proxy = {
-                'proxy_type': 'http',
+                'proxy_type': 'socks5',
                 'addr': 'proxy.server.pythonanywhere.com',
-                'port': 3128,
+                'port': 1080,
                 'rdns': True
             }
             
