@@ -21,11 +21,11 @@ async def main():
         if settings.ENABLE_METRICS:
             await metrics.start()
             
-        # Start bot
-        await bot.start()
+        # Setup and start bot
+        await bot.setup()
         
         # Keep running
-        await bot.run_forever()
+        await asyncio.get_event_loop().run_forever()
         
     except Exception as e:
         logger.error(f"Error in main: {e}", exc_info=True)
