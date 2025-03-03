@@ -27,25 +27,17 @@ class TelegramBot:
         try:
             logger.info("Starting bot initialization...")
             
-            # Initialize bot with proxy for PythonAnywhere
-            proxy = {
-                'proxy_type': 'http',
-                'addr': 'proxy.server.pythonanywhere.com',
-                'port': 3128,
-                'rdns': True,
-                'username': 'proxy',
-                'password': 'proxy'
-            }
-            
+            # Initialize bot with alternative servers
             self.bot = TelegramClient(
                 'bot', 
                 settings.API_ID, 
                 settings.API_HASH,
-                proxy=proxy,
                 connection_retries=None,
                 system_version="4.16.30-vxCUSTOM",
                 device_model="VPS",
-                app_version="1.0"
+                app_version="1.0",
+                use_ipv6=True,
+                server=('149.154.167.50', 443)  # Alternative Telegram server
             )
             await self.bot.start(bot_token=settings.BOT_TOKEN)
             
