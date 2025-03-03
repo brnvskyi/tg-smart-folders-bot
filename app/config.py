@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     FORWARD_DELAY: float = Field(0.5, description="Delay between forwards in seconds")
     
     # Cache Settings
+    CACHE_TTL: int = Field(300, description="Cache TTL in seconds")
     FOLDER_CACHE_TTL: int = Field(300, description="Folder list cache TTL in seconds")
     ENABLE_REDIS_CACHE: bool = Field(False, description="Use Redis for caching")
     REDIS_URL: Optional[str] = Field(None, description="Redis connection URL")
