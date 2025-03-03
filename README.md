@@ -1,95 +1,114 @@
-# Telegram Folder Bot
+# Smart Folders Bot
 
-Бот для создания агрегационных каналов на основе папок Telegram.
+Telegram бот для создания умных папок и автоматической пересылки сообщений.
 
 ## Возможности
 
-- Авторизация через QR-код
-- Создание каналов на основе папок
-- Автоматическая пересылка сообщений
-- Управление несколькими папками
+- Авторизация через QR-код или API credentials
+- Создание каналов для папок Telegram
+- Автоматическая пересылка сообщений из папок в каналы
+- Мониторинг и метрики
+- Защита от дубликатов сообщений
 
-## Установка
+## Развертывание на Railway
 
-1. Клонируйте репозиторий:
-bash
-git clone https://github.com/mikhailmurzak/tg-smart-folders-bot.git
-cd tg-smart-folders-bot
+1. Форкните репозиторий
+2. Создайте новый проект на Railway.com
+3. Подключите ваш репозиторий
+4. Добавьте следующие переменные окружения:
+   - `API_ID` - ID вашего Telegram приложения
+   - `API_HASH` - Hash вашего Telegram приложения
+   - `BOT_TOKEN` - Токен вашего бота
+   - `DATA_DIR` - Путь для хранения данных (например, "./data")
+   - `ENABLE_METRICS` - true/false для включения метрик
+   - `FORWARD_DELAY` - Задержка между пересылками (в секундах)
+   - `FOLDER_CACHE_TTL` - Время жизни кэша папок (в секундах)
 
-2. Установите pip (если не установлен):
-bash
-python3 get-pip.py
+5. Нажмите Deploy
 
+## Локальная разработка
+
+1. Клонируйте репозиторий
+2. Создайте виртуальное окружение:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # для Linux/Mac
+   venv\Scripts\activate  # для Windows
+   ```
 3. Установите зависимости:
-bash
-pip3 install -r requirements.txt
-
-4. Создайте файл .env и добавьте необходимые переменные:
-bash
-API_ID=your_api_id
-API_HASH=your_api_hash
-BOT_TOKEN=your_bot_token
-
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Создайте файл .env с необходимыми переменными окружения
 5. Запустите бота:
-bash
-python3 bot.py
+   ```bash
+   python -m app
+   ```
 
-## Получение API ключей
+## Project Structure
 
-1. Получите `API_ID` и `API_HASH`:
-   - Перейдите на https://my.telegram.org
-   - Войдите в свой аккаунт
-   - Перейдите в 'API development tools'
-   - Создайте новое приложение
-   - Скопируйте API_ID и API_HASH
+```
+.
+├── app/
+│   ├── __init__.py
+│   ├── bot.py           # Main bot class
+│   ├── config.py        # Configuration management
+│   ├── handlers.py      # Message handlers
+│   ├── logger.py        # Logging setup
+│   ├── session.py       # Session management
+│   └── user_session.py  # User session handling
+├── data/
+│   ├── logs/           # Log files
+│   └── user_data/      # Encrypted user sessions
+├── main.py             # Entry point
+├── requirements.txt    # Dependencies
+└── .env               # Environment variables
+```
 
-2. Получите `BOT_TOKEN`:
-   - Найдите @BotFather в Telegram
-   - Отправьте команду /newbot
-   - Следуйте инструкциям
-   - Скопируйте полученный токен
+## Requirements
 
-## Использование
+- Python 3.8 or higher
+- Telegram API credentials (API_ID and API_HASH)
+- Bot token from @BotFather
 
-1. Отправьте команду /start боту
-2. Отсканируйте QR-код для авторизации
-3. Выберите папки для создания каналов
-4. Готово! Бот будет пересылать сообщения из каналов выбранных папок
+## Security Features
 
-## Структура проекта
-telegram-folder-bot/
-├── bot.py # Основной файл бота
-├── get-pip.py # Установщик pip
-├── requirements.txt # Зависимости проекта
-├── .env # Конфигурация (не включена в репозиторий)
-├── logs/ # Директория для логов
-└── user_data/ # Данные пользователей
+- QR code-based authentication
+- Optional session encryption
+- Secure file permissions for sensitive data
+- Circuit breaker pattern for handling connection issues
+- Automatic session cleanup on authentication failures
 
-## Разработка
+## Error Handling
 
-1. Создайте fork репозитория
-2. Создайте ветку для новой функции:
-bash
-git checkout -b feature/my-new-feature
+The bot implements robust error handling:
+- Automatic reconnection with exponential backoff
+- Circuit breaker pattern to prevent excessive reconnection attempts
+- Structured logging with request tracking
+- Graceful degradation on failures
 
-3. Внесите изменения и создайте коммит:
-bash
-git add .
-git commit -m "Add new feature"
+## Logging
 
-4. Отправьте изменения в свой fork:
-bash
-git push origin feature/my-new-feature
+Logs are stored in `data/logs/` with the following features:
+- Request ID tracking across log entries
+- Rotating file handler (10MB per file, 5 backups)
+- Configurable log level
+- Comprehensive error reporting
 
-5. Создайте Pull Request
+## Contributing
 
-## Требования
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-- Python 3.7 или выше
-- pip (установщик включен в репозиторий)
-- Доступ к Telegram API
-- Стабильное интернет-соединение
+## License
 
-## Лицензия
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-MIT
+## Acknowledgments
+
+- [Telethon](https://github.com/LonamiWebs/Telethon) for the Telegram client implementation
+- [Pydantic](https://pydantic-docs.helpmanual.io/) for configuration management
+- [QRCode](https://github.com/lincolnloop/python-qrcode) for QR code generation
