@@ -7,6 +7,7 @@ from .session import SessionManager
 from .handlers import MessageHandlers
 from .user_session import UserSession
 from telethon.errors import FloodWaitError
+from telethon import connection
 
 logger = setup_logger(__name__)
 
@@ -27,18 +28,21 @@ class TelegramBot:
         try:
             logger.info("Starting bot initialization...")
             
-            # Initialize bot with alternative servers
+            # Initialize bot with MTProto proxy
             self.bot = TelegramClient(
                 'bot', 
                 settings.API_ID, 
                 settings.API_HASH,
+                connection=connection.ConnectionTcpMTProxyRandomizedIntermediate,
                 connection_retries=None,
                 system_version="4.16.30-vxCUSTOM",
                 device_model="VPS",
                 app_version="1.0",
-                use_ipv6=True,
-                server=('149.154.167.50', 443)  # Alternative Telegram server
+                use_ipv6=True
             )
+            
+            # Connect to MTProto proxy
+            await self.bot.connect()
             await self.bot.start(bot_token=settings.BOT_TOKEN)
             
             # Register handlers
