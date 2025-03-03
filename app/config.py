@@ -11,10 +11,22 @@ class Settings(BaseSettings):
     
     # Directory Settings
     DATA_DIR: str = Field("./data", description="Base directory for data storage")
-    LOGS_DIR: str = Field(None, description="Directory for log files")
-    USER_DATA_DIR: str = Field(None, description="Directory for user data")
-    ANALYTICS_DIR: str = Field(None, description="Directory for analytics data")
-    BACKUPS_DIR: str = Field(None, description="Directory for backups")
+
+    @property
+    def LOGS_DIR(self) -> str:
+        return os.path.join(self.DATA_DIR, "logs")
+
+    @property
+    def USER_DATA_DIR(self) -> str:
+        return os.path.join(self.DATA_DIR, "user_data")
+
+    @property
+    def ANALYTICS_DIR(self) -> str:
+        return os.path.join(self.DATA_DIR, "analytics")
+
+    @property
+    def BACKUPS_DIR(self) -> str:
+        return os.path.join(self.DATA_DIR, "backups")
     
     # Connection Settings
     WEBHOOK_URL: Optional[str] = Field(None, description="Webhook URL for bot updates")
@@ -81,16 +93,6 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
-        # Set derived paths after DATA_DIR is initialized
-        if not self.LOGS_DIR:
-            self.LOGS_DIR = os.path.join(self.DATA_DIR, "logs")
-        if not self.USER_DATA_DIR:
-            self.USER_DATA_DIR = os.path.join(self.DATA_DIR, "user_data")
-        if not self.ANALYTICS_DIR:
-            self.ANALYTICS_DIR = os.path.join(self.DATA_DIR, "analytics")
-        if not self.BACKUPS_DIR:
-            self.BACKUPS_DIR = os.path.join(self.DATA_DIR, "backups")
-            
         # Create necessary directories
         for directory in [self.DATA_DIR, self.LOGS_DIR, self.USER_DATA_DIR, 
                          self.ANALYTICS_DIR, self.BACKUPS_DIR]:
