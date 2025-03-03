@@ -28,20 +28,23 @@ class TelegramBot:
         try:
             logger.info("Starting bot initialization...")
             
-            # Initialize bot with MTProto proxy
+            # Initialize bot with TCP connection
             self.bot = TelegramClient(
                 'bot', 
                 settings.API_ID, 
                 settings.API_HASH,
-                connection=connection.ConnectionTcpMTProxyRandomizedIntermediate,
-                connection_retries=None,
+                connection=connection.ConnectionTcpFull,
+                connection_retries=10,
+                retry_delay=1,
+                timeout=30,
                 system_version="4.16.30-vxCUSTOM",
                 device_model="VPS",
                 app_version="1.0",
-                use_ipv6=True
+                use_ipv6=True,
+                request_retries=10
             )
             
-            # Connect to MTProto proxy
+            # Connect and start bot
             await self.bot.connect()
             await self.bot.start(bot_token=settings.BOT_TOKEN)
             
