@@ -15,9 +15,10 @@ logger = setup_logger(__name__)
 class TelegramBot:
     def __init__(self):
         """Initialize bot instance"""
-        # Set proxy environment variables for PythonAnywhere
-        os.environ['HTTP_PROXY'] = 'http://proxy.server.pythonanywhere.com:3128'
-        os.environ['HTTPS_PROXY'] = 'http://proxy.server.pythonanywhere.com:3128'
+        # Set proxy environment variables for PythonAnywhere with credentials
+        os.environ['HTTP_PROXY'] = 'http://proxy:proxy@proxy.server.pythonanywhere.com:3128'
+        os.environ['HTTPS_PROXY'] = 'http://proxy:proxy@proxy.server.pythonanywhere.com:3128'
+        os.environ['PYTHONHTTPSVERIFY'] = '0'  # Disable SSL verification for proxy
         
         self.bot = TelegramClient(
             MemorySession(),
@@ -33,15 +34,18 @@ class TelegramBot:
         try:
             logger.info("Starting bot initialization...")
             
-            # Initialize bot with simplified settings
+            # Initialize bot with intermediate connection
+            from telethon.network import ConnectionTcpIntermediate
+            
             self.bot = TelegramClient(
                 'bot', 
                 settings.API_ID, 
                 settings.API_HASH,
-                connection=connection.ConnectionTcpAbridged,
+                connection=ConnectionTcpIntermediate,
                 connection_retries=None,  # Infinite retries
                 auto_reconnect=True,
-                flood_sleep_threshold=60
+                flood_sleep_threshold=60,
+                proxy=('http', 'proxy.server.pythonanywhere.com', 3128, True, 'proxy', 'proxy')
             )
             
             # Connect and start bot
