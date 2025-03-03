@@ -8,12 +8,17 @@ from .handlers import MessageHandlers
 from .user_session import UserSession
 from telethon.errors import FloodWaitError
 from telethon import connection
+import os
 
 logger = setup_logger(__name__)
 
 class TelegramBot:
     def __init__(self):
         """Initialize bot instance"""
+        # Set proxy environment variables for PythonAnywhere
+        os.environ['HTTP_PROXY'] = 'http://proxy.server.pythonanywhere.com:3128'
+        os.environ['HTTPS_PROXY'] = 'http://proxy.server.pythonanywhere.com:3128'
+        
         self.bot = TelegramClient(
             MemorySession(),
             api_id=settings.API_ID,
@@ -28,20 +33,15 @@ class TelegramBot:
         try:
             logger.info("Starting bot initialization...")
             
-            # Initialize bot with TCP connection
+            # Initialize bot with simplified settings
             self.bot = TelegramClient(
                 'bot', 
                 settings.API_ID, 
                 settings.API_HASH,
-                connection=connection.ConnectionTcpFull,
-                connection_retries=10,
-                retry_delay=1,
-                timeout=30,
-                system_version="4.16.30-vxCUSTOM",
-                device_model="VPS",
-                app_version="1.0",
-                use_ipv6=True,
-                request_retries=10
+                connection=connection.ConnectionTcpAbridged,
+                connection_retries=None,  # Infinite retries
+                auto_reconnect=True,
+                flood_sleep_threshold=60
             )
             
             # Connect and start bot
