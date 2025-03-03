@@ -35,8 +35,8 @@ class TelegramBot:
                 'rdns': True
             }
             
-            self.bot = TelegramClient('bot', settings.API_ID, settings.API_HASH, proxy=proxy)
-            await self.bot.start(bot_token=settings.BOT_TOKEN)
+            self.bot = TelegramClient('bot', settings.API_ID, settings.API_HASH)
+            await self.bot.start(bot_token=settings.BOT_TOKEN, proxy=('mtproxy.telegram.org', 443))
             
             # Register handlers
             self.bot.add_event_handler(self.handle_start, events.NewMessage(pattern='/start'))
